@@ -1,6 +1,5 @@
 import os
 import tensorflow as tf
-from tensorflow import contrib
 import collections
 import datetime as dt
 
@@ -141,6 +140,27 @@ class Model(object):
 
         if not is_training:
             return
+
+        self.learning_rate=tf.Variable(0.0,trainable=False)
+
+        tvars=tf.trainable_variables()
+        grads,_=tf.clip_by_global_norm(tf.gradients(self.cost,tvars),5)
+        optimizer=tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+
+        self.train_op=optimizer.apply_gradients(
+            zip(grads,tvars),
+            global_step=tf.train.get_or_create_global_step()
+        )
+
+        self.new_lr=tf.placeholder(dtype=tf.float32,shape=[])
+        self.lr_update=tf.assign(self.learning_rate,self.new_lr)
+
+    def assign_lr(self,session,lr_value):
+        session.run(self.lr_update,feed_dict={self.new_lr:lr_value})
+
+
+
+
 
 
 
