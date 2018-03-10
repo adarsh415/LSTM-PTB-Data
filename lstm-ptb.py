@@ -1,6 +1,7 @@
 import os
 import tensorflow as tf
 import collections
+import numpy as np
 import datetime as dt
 
 data_path='C:\\Users\\padarsh\\PycharmProjects\\LSTM-PTB-Data\\simple-examples\\data'
@@ -157,6 +158,55 @@ class Model(object):
 
     def assign_lr(self,session,lr_value):
         session.run(self.lr_update,feed_dict={self.new_lr:lr_value})
+
+
+def train(train_data,vocabulary,num_layers,num_epochs,batch_size,model_save_name,
+          learning_rate=1.0, max_lr_epoch=10, lr_decay=0.93, print_iter=50):
+    #setup data and model
+    training_input=Input(batch_size=batch_size,num_steps=35,data=train_data)
+    m=Model(training_input,is_training=True,hidden_size=650,vocab_size=vocabulary,num_layers=num_layers)
+
+    init_op=tf.global_variables_initializer()
+    orig_decay=lr_decay
+    with tf.Session() as sess:
+        # start the thread
+        sess.run([init_op])
+        coord=tf.train.Coordinator()
+        threads=tf.train.start_queue_runners(coord=coord)
+        saver=tf.train.Saver()
+        for epoch in range(num_epochs):
+            new_lr_decay=orig_decay**max(epoch+1-max_lr_epoch,0.0)
+            m.assign_lr(sess,learning_rate*new_lr_decay)
+
+            current_state=np.zeros((num_layers,2,batch_size,m.hidden_size))
+            curr_time=dt.datetime.now()
+            for step in range(training_input.epoch_size):
+
+                if step%print_iter !=0:
+                    cost,_,current_state=sess.run([m.cost,m.train_op,m.state],feed_dict={m.init_state:current_state})
+                else:
+                    seconds = (float((dt.datetime.now() - curr_time).seconds) / print_iter)
+                    curr_time=dt.datetime.now()
+                    cost, _, current_state,acc = sess.run([m.cost, m.train_op, m.state,m.accoracy],
+                                                      feed_dict={m.init_state: current_state})
+                    print ("Epoch {}, Step {}, cost: {:.3f}, accuracy: {:.3f}, Seconds per step: {:.3f}".format(epoch,
+                            step, cost, acc, seconds))
+
+            saver.save(sess,data_path+'\\'+model_save_name,global_step=epoch)
+        #do final save
+        saver.save(sess,data_path+'\\'+model_save_name+'-final')
+
+        coord.request_stop()
+        coord.join(threads)
+
+
+
+def test(model_path,test_data,vocabulary,reverse_dict):
+    test_input=Input(batch_size=20,num_steps=35,data=test_data)
+    saver=tf.train.Saver()
+    m = Model(test_input, is_training=False, hidden_size=650, vocab_size=vocabulary, num_layers=2)
+
+
 
 
 
