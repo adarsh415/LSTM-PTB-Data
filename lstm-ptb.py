@@ -11,14 +11,14 @@ vocab_size=50000
 def read_words(file):
 
     with tf.gfile.GFile(file,'r') as f:
-        return f.read().decode('utf-8').replace('\n','<eos>').split()
+        return f.read().replace('\n','<eos>').split()
 
 def build_vocab(file):
     data=read_words(file)
 
     dictionary=dict()
     count=[['UNK',-1]]
-    count.append(collections.Counter(data).most_common(vocab_size-1))
+    count.extend(collections.Counter(data).most_common(vocab_size-1))
 
     for word,_ in count:
         dictionary[word]=len(dictionary)
@@ -96,7 +96,7 @@ class Model(object):
         self.init_state=tf.placeholder(tf.float32,[num_layers,2,self.batch_size,self.hidden_size])
 
         state_per_layer_list=tf.unstack(self.init_state,axis=0)
-        rnn_state_tuple=tuple([tf.contrib.rnn.LSTMStateTuple(state_per_layer_list[idx][0,state_per_layer_list[idx][1]]) for idx in range(num_layers)])
+        rnn_state_tuple=tuple([tf.contrib.rnn.LSTMStateTuple(state_per_layer_list[idx][0],state_per_layer_list[idx][1]) for idx in range(num_layers)])
 
 
         #create LSTM cell to unroll over number time input
@@ -135,7 +135,7 @@ class Model(object):
         #get the prediction accuracy
         self.softmax_out=tf.nn.softmax(tf.reshape(logits,[-1,vocab_size]))
         self.predict=tf.cast(tf.argmax(self.softmax_out,axis=1),tf.int32)
-        correct_prediction=tf.equal(self.predict,tf.reshape(self.input_obj.targes,[-1]))
+        correct_prediction=tf.equal(self.predict,tf.reshape(self.input_obj.targets,[-1]))
         self.accoracy=tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
 
 
@@ -205,6 +205,50 @@ def test(model_path,test_data,vocabulary,reverse_dict):
     test_input=Input(batch_size=20,num_steps=35,data=test_data)
     saver=tf.train.Saver()
     m = Model(test_input, is_training=False, hidden_size=650, vocab_size=vocabulary, num_layers=2)
+
+
+    with tf.Session() as sess:
+        coord=tf.train.Coordinator()
+        threads=tf.train.start_queue_runners(coord=coord)
+        current_state=np.zeros((2,2,m.batch_size,m.hidden_size))
+
+
+        # restore the trained model
+        saver.restore(sess,model_path)
+
+        # get an average accuracy over num_acc_batches
+        num_acc_batches = 30
+        check_batch_idx = 25
+        acc_check_thresh = 5
+        accuracy = 0
+
+        for batch in range(num_acc_batches):
+
+            if batch==check_batch_idx:
+                true_vals,pred,current_state,acc=sess.run([m.input_obj.targets,m.predict,m.state,m.accoracy],
+                                                          feed_dict={m.init_state:current_state})
+                pred_string=[reverse_dict[x] for x in pred[:m.num_steps]]
+                true_vals_string=[reverse_dict[x] for x in true_vals[0]]
+                print ('True values (1st line) vs predicted values (2nd line):')
+                print (' '.join(true_vals))
+                print (' '.join(pred_string))
+
+            else:
+                acc, current_state = sess.run([m.accoracy, m.state], feed_dict={m.init_state: current_state})
+            if batch >= acc_check_thresh:
+                accuracy+=acc
+        print("Average accuracy: {:.3f}".format(accuracy / (num_acc_batches - acc_check_thresh)))
+        coord.request_stop()
+        coord.join(threads)
+
+if __name__=='__main__':
+    train_data,test_data,val_data,vocabulary,reversed_dict=load_data()
+    train(train_data, vocabulary, num_layers=2, num_epochs=60, batch_size=20,
+          model_save_name='two-layer-lstm-medium-config-60-epoch-0p93-lr-decay-10-max-lr')
+
+    #test(trained_model, test_data, reversed_dictionary)
+
+
 
 
 
